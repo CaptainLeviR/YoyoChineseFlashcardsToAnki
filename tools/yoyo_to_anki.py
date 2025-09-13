@@ -6,6 +6,7 @@ import sys
 import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
+import hashlib
 
 try:
     # Use urllib to avoid external deps
@@ -230,6 +231,9 @@ def main():
     parser.add_argument("--format", choices=["simple", "rich"], default="simple", help="TSV format: simple=2 fields (Front/Back) with optional audio; rich=7 fields (Simplified, Pinyin, English, Traditional, Audio, Code, WordType).")
     parser.add_argument("--include-audio", action="store_true", help="Download audio files and reference them in TSV.")
     parser.add_argument("--audio-speed", choices=["normal", "slow"], default="normal", help="Which audio to reference.")
+    parser.add_argument("--make-apkg", action="store_true", help="Create an .apkg with subdecks Word/Sentence using genanki (if available).")
+    parser.add_argument("--apkg-path", default=None, help="Optional explicit output path for the .apkg file (defaults to export/<deck-name>.apkg).")
+    parser.add_argument("--split-by-wordtype", action="store_true", help="Write separate TSVs for Word and Sentence based on card.wordType.")
 
     args = parser.parse_args()
 
@@ -267,31 +271,65 @@ def main():
 
     print(f"Fetched {len(cards)} cards. Transforming → TSV ...")
 
-    tsv_rows_simple: List[Tuple[str, str]] = []
-    tsv_rows_rich: List[List[str]] = []
+    # Accumulators
+    tsv_rows_simple_all: List[Tuple[str, str]] = []
+    tsv_rows_rich_all: List[List[str]] = []
+    # When splitting, bucket by label: 'Word' or 'Sentence'
+    tsv_simple_by_type: Dict[str, List[Tuple[str, str]]] = {"Word": [], "Sentence": []}
+    tsv_rich_by_type: Dict[str, List[List[str]]] = {"Word": [], "Sentence": []}
     audio_to_download: List[Tuple[str, str]] = []  # (url, dest_path)
 
     for card in cards:
+        label = _word_type_label(card.wordType)
         if args.format == "simple":
             front, back, audio_fn = to_simple_fields(card, args.include_audio, args.audio_speed)
-            tsv_rows_simple.append((front, back))
+            if args.split_by_wordtype and label in tsv_simple_by_type:
+                tsv_simple_by_type[label].append((front, back))
+            else:
+                tsv_rows_simple_all.append((front, back))
             if args.include_audio and audio_fn:
                 url = CDN_AUDIO_BASE + audio_fn
                 audio_to_download.append((url, os.path.join(media_dir, audio_fn)))
         else:
             fields, audio_fn = to_rich_fields(card, args.include_audio, args.audio_speed)
-            tsv_rows_rich.append(fields)
+            if args.split_by_wordtype and label in tsv_rich_by_type:
+                tsv_rich_by_type[label].append(fields)
+            else:
+                tsv_rows_rich_all.append(fields)
             if args.include_audio and audio_fn:
                 url = CDN_AUDIO_BASE + audio_fn
                 audio_to_download.append((url, os.path.join(media_dir, audio_fn)))
 
-    out_tsv = os.path.join(out_dir, f"{args.deck_name}.{args.format}.tsv")
-    if args.format == "simple":
-        write_tsv_simple(out_tsv, tsv_rows_simple)
+    # Write TSV(s)
+    if args.split_by_wordtype:
+        written_files: List[str] = []
+        if args.format == "simple":
+            for key, rows in tsv_simple_by_type.items():
+                if not rows:
+                    continue
+                out_tsv = os.path.join(out_dir, f"{args.deck_name}.{key.lower()}.{args.format}.tsv")
+                write_tsv_simple(out_tsv, rows)
+                written_files.append(out_tsv)
+        else:
+            for key, rows in tsv_rich_by_type.items():
+                if not rows:
+                    continue
+                out_tsv = os.path.join(out_dir, f"{args.deck_name}.{key.lower()}.{args.format}.tsv")
+                write_tsv_rich(out_tsv, rows)
+                written_files.append(out_tsv)
+        if written_files:
+            print("Wrote split TSVs:")
+            for p in written_files:
+                print(f"  - {p}")
+        else:
+            print("No TSV written: no cards matched Word/Sentence buckets.")
     else:
-        write_tsv_rich(out_tsv, tsv_rows_rich)
-
-    print(f"Wrote TSV → {out_tsv}")
+        out_tsv = os.path.join(out_dir, f"{args.deck_name}.{args.format}.tsv")
+        if args.format == "simple":
+            write_tsv_simple(out_tsv, tsv_rows_simple_all)
+        else:
+            write_tsv_rich(out_tsv, tsv_rows_rich_all)
+        print(f"Wrote TSV → {out_tsv}")
 
     if args.include_audio and audio_to_download:
         print(f"Downloading {len(audio_to_download)} audio files to {media_dir} ...")
@@ -312,6 +350,94 @@ def main():
                 print(f"  WARN: failed {url} → {e}")
                 # continue; keep TSV usable
         print(f"Audio downloads completed: {ok}/{len(audio_to_download)} ok")
+
+    # Optionally build .apkg with subdecks (Word/Sentence) using genanki
+    if args.make_apkg:
+        try:
+            import genanki  # type: ignore
+        except Exception as e:
+            print("Cannot build .apkg: genanki not installed. Install with: pip install genanki", file=sys.stderr)
+            return
+
+        # Load templates and style from tools; fall back to minimal defaults
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+        def _read_file(p: str, default: str) -> str:
+            try:
+                with open(p, 'r', encoding='utf-8') as fh:
+                    return fh.read()
+            except Exception:
+                return default
+
+        tools_dir = os.path.join(repo_root, 'tools')
+        front_html = _read_file(os.path.join(tools_dir, 'anki_front_template.html'), "{{simplified}}")
+        back_html = _read_file(os.path.join(tools_dir, 'anki_back_template.html'), "{{simplified}}<br>{{pinyin}}<br>{{english}}")
+        css_text = _read_file(os.path.join(tools_dir, 'anki_style.css'), ".card { font-family: Georgia; font-size: 14px; }")
+
+        # Stable IDs from names
+        def _stable_id(name: str) -> int:
+            h = hashlib.md5(name.encode('utf-8')).hexdigest()[:8]
+            return int(h, 16)
+
+        model = genanki.Model(
+            model_id=_stable_id('YoYoChinese-Model-v1'),
+            name='YoYoChinese Model',
+            fields=[
+                { 'name': 'simplified' },
+                { 'name': 'traditional' },
+                { 'name': 'pinyin' },
+                { 'name': 'english' },
+                { 'name': 'audio' },
+            ],
+            templates=[
+                {
+                    'name': 'Card 1',
+                    'qfmt': front_html,
+                    'afmt': back_html,
+                }
+            ],
+            css=css_text,
+        )
+
+        deck_word = genanki.Deck(_stable_id(f"{args.deck_name}::Word"), f"{args.deck_name}::Word")
+        deck_sentence = genanki.Deck(_stable_id(f"{args.deck_name}::Sentence"), f"{args.deck_name}::Sentence")
+
+        # Build notes from fetched cards
+        media_files: List[str] = []
+        for card in cards:
+            label = _word_type_label(card.wordType) or 'Word'
+            english = card.english1
+            if card.english2:
+                english = f"{english} | {card.english2}"
+            audio_fn = card.audio_filename(args.audio_speed) if args.include_audio else None
+            audio_field = f"[sound:{audio_fn}]" if audio_fn else ""
+            if audio_fn:
+                media_path = os.path.join(media_dir, audio_fn)
+                if os.path.exists(media_path):
+                    media_files.append(media_path)
+
+            note = genanki.Note(
+                model=model,
+                fields=[
+                    card.simplified,
+                    card.traditional,
+                    card.pinyin,
+                    english,
+                    audio_field,
+                ],
+                tags=[label.lower(), card.code] if card.code else [label.lower()],
+            )
+            if label == 'Sentence':
+                deck_sentence.add_note(note)
+            else:
+                deck_word.add_note(note)
+
+        # Package and write
+        apkg_out = args.apkg_path or os.path.join(out_dir, f"{args.deck_name}.apkg")
+        pkg = genanki.Package([deck_word, deck_sentence])
+        if media_files:
+            pkg.media_files = sorted(set(media_files))
+        pkg.write_to_file(apkg_out)
+        print(f"Wrote Anki package → {apkg_out}")
 
     print("Done. Import into Anki: File → Import → select TSV.\n"
           "- For 'simple' format: map Front=Field 1, Back=Field 2.\n"

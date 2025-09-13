@@ -1,0 +1,152 @@
+hr {
+  height: 3px;
+  background: white;
+  border: none;
+  margin-top: 20px;
+  margin-bottom: 20px;
+}
+
+div {
+  margin-bottom: 10px;
+}
+
+.card {
+  font-family: Georgia;
+  font-size: 10px;
+  text-align: left;
+  background-color: rgb(47,47,49);
+  color: #fff;
+  padding: 20px;
+}
+
+.hanzi {
+  font-family: Kai;
+  font-size: 78px;
+  border-bottom: 3px solid rgba(0,0,0,0);
+  transition: border 0.5s ease, padding 0.5s ease;
+  margin-top: 20px;
+}
+
+.hanzi.whover {
+  cursor: pointer;
+}
+
+.hanzi.whover:hover {}
+
+.hanzi.whover::before {
+  font-family: Palatino;
+  content: var(--pinyin);
+  position: absolute;
+  font-size: 22px;
+  color: #55DD55;
+  padding-left: 10px;
+  padding-right: 10px;
+  padding-bottom: 5px;
+  border-left: 3px solid white;
+  transform: translate(-10px, -40px);
+  opacity: 0;
+  transition: opacity 0.5s ease;
+  height: 140px;
+  padding-top: 0px;
+}
+
+.hanzi.whover:hover::before {
+  opacity: 1;
+}
+
+.sentence {
+  font-family: Kai;
+  font-size: 30px;
+  text-align: left;
+  transition: padding 0.5s ease;
+}
+
+.pinyinSen.whover {
+  cursor: pointer;
+  border-left: 3px solid white;
+  padding-left: 10px;
+  height: 25px;
+  max-height: 80px;
+  display: flex;
+  padding-top: 55px;
+  transform: translate(-10px, -50px);
+  opacity: 0;
+  transition: opacity 0.5s ease;
+  white-space: nowrap;
+}
+
+.pinyinSen.whover:hover {
+  opacity: 1;
+}
+
+.pinyin {
+  font-family: Palatino;
+  font-size: 22px;
+  color: #55DD55;
+}
+
+.pinyinSen {
+  font-family: Palatino;
+  font-size: 20px;
+  color: #55DD55;
+  text-align: left;
+}
+
+.english {
+  font-family: Didot;
+  font-size: 16px;
+}
+
+.meaningSent {
+  font-family: Didot;
+  font-size: 16px;
+  text-align: left;
+}
+
+.description {
+  font-family: Didot;
+  font-size: 16px;
+  color: #575757;
+}
+
+.image {
+  border-left: 3px solid white;
+  padding-left: 10px;
+}
+
+.buttons-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+/* External resource buttons */
+.external-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 5px;
+  margin-bottom: 10px;
+}
+
+.ext-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 48px;
+  text-decoration: none;
+}
+
+.ext-button img {
+  height: 40px;
+  object-fit: contain;
+}
+
+.ext-button small {
+  color: white;
+  font-size: 10px;
+  margin-top: 2px;
+  text-align: center;
+}
+

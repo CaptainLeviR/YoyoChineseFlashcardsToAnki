@@ -25,10 +25,14 @@ Usage
    - You can also set `YOYO_COOKIE` env var instead of `--cookie`.
    - `--format simple` → 2 columns (Front, Back). Front includes Simplified + optional audio; Back includes Pinyin — English.
    - `--format rich` → 7 columns: Simplified, Pinyin, English, Traditional, Audio, Code, WordType.
+   - `--split-by-wordtype` → writes two TSVs instead of one: `<deck-name>.word.<format>.tsv` and `<deck-name>.sentence.<format>.tsv`, based on the card's `WordType`.
+   - `--make-apkg` → also builds an `.apkg` with subdecks `Deck::Word` and `Deck::Sentence` using your HTML/CSS templates in `tools/`. Requires `genanki`.
+   - `--apkg-path` → optional path for the output `.apkg` (defaults to `export/<deck-name>.apkg`).
    - Use filters if needed: `--course-id`, `--level-id`, `--unit-id`, `--lesson-id`, `--mastery-type`.
 
 Output
-- TSV at `export/<deck-name>.<format>.tsv`
+- TSV at `export/<deck-name>.<format>.tsv` (or two files when using `--split-by-wordtype`)
+ - If `--make-apkg`, an Anki package at `export/<deck-name>.apkg` containing subdecks, fields, styling, and audio (when downloaded).
 - Media (if `--include-audio`) in `export/media/` with filenames matching `[sound:...]` in TSV
 
 Import into Anki
@@ -48,3 +52,4 @@ Notes
 Troubleshooting
 - 401/403 errors: your Cookie is likely missing/expired. Grab a fresh value from the browser.
 - Empty results: adjust filters, or verify your account has flashcards on the site.
+ - Missing `.apkg`: install `genanki` → `pip install genanki`, then rerun with `--make-apkg`.
