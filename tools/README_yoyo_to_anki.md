@@ -52,4 +52,5 @@ Notes
 Troubleshooting
 - 401/403 errors: your Cookie is likely missing/expired. Grab a fresh value from the browser.
 - Empty results: adjust filters, or verify your account has flashcards on the site.
- - Missing `.apkg`: install `genanki` → `pip install genanki`, then rerun with `--make-apkg`.
+- Missing `.apkg`: install `genanki` → `pip install genanki`, then rerun with `--make-apkg`.
+ - Audio download errors: the script automatically retries transient failures (e.g., SSL EOF) with exponential backoff and cleans up partial files. If specific files keep failing, you can rerun and it will skip any audio already downloaded.

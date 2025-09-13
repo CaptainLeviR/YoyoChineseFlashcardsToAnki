@@ -98,7 +98,21 @@ def http_post_json(url: str, body: Dict, headers: Dict[str, str], timeout: int =
         raise RuntimeError(f"Network error: {e}")
 
 
-def http_download(url: str, dest_path: str, headers: Optional[Dict[str, str]] = None, timeout: int = 60) -> None:
+def http_download(
+    url: str,
+    dest_path: str,
+    headers: Optional[Dict[str, str]] = None,
+    timeout: int = 60,
+    retries: int = 4,
+    backoff: float = 0.75,
+) -> None:
+    """Download a URL to dest_path with basic retry + backoff.
+
+    Writes to a temporary .part file and atomically replaces dest on success.
+    Cleans up partial files on failure. Retries common transient network/SSL
+    errors (e.g., unexpected EOF) with exponential backoff.
+    """
+    # Prepare request
     req = urllib.request.Request(url, method="GET")
     if headers:
         for k, v in headers.items():
@@ -106,12 +120,46 @@ def http_download(url: str, dest_path: str, headers: Optional[Dict[str, str]] = 
     # Add range header to be browser-like and resumable, but it's optional
     if "range" not in (headers or {}):
         req.add_header("range", "bytes=0-")
+
     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-    with urllib.request.urlopen(req, timeout=timeout) as resp, open(dest_path, "wb") as f:
-        chunk = resp.read(8192)
-        while chunk:
-            f.write(chunk)
-            chunk = resp.read(8192)
+    tmp_path = dest_path + ".part"
+
+    last_err: Optional[Exception] = None
+    for attempt in range(1, max(1, retries) + 1):
+        try:
+            # Remove any previous partial file before retrying
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+
+            with urllib.request.urlopen(req, timeout=timeout) as resp, open(tmp_path, "wb") as f:
+                while True:
+                    chunk = resp.read(8192)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+
+            # Success: atomically move into place
+            os.replace(tmp_path, dest_path)
+            return
+        except Exception as e:
+            last_err = e
+            # Best-effort cleanup
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except Exception:
+                pass
+            if attempt >= retries:
+                break
+            # Exponential backoff with tiny jitter
+            sleep_s = backoff * (2 ** (attempt - 1)) + min(0.25, 0.05 * attempt)
+            time.sleep(sleep_s)
+
+    # If we reach here, all retries failed
+    raise RuntimeError(f"download failed after {retries} attempts: {last_err}")
 
 
 def fetch_all_flashcards(
