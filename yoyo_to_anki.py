@@ -492,8 +492,7 @@ def main():
                     card.pinyin,
                     english,
                     audio_field,
-                ],
-                tags=[label.lower(), card.code] if card.code else [label.lower()],
+                ]
             )
             if label == 'Sentence':
                 deck_sentence.add_note(note)
