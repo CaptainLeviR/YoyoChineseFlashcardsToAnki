@@ -449,6 +449,7 @@ def main():
             model_id=_stable_id('YoYoChinese-Model-v1'),
             name='YoYoChinese Model',
             fields=[
+                { 'name': 'index' },
                 { 'name': 'simplified' },
                 { 'name': 'traditional' },
                 { 'name': 'pinyin' },
@@ -485,6 +486,7 @@ def main():
             note = genanki.Note(
                 model=model,
                 fields=[
+                    (card.code or card.id or ''),
                     card.simplified,
                     card.traditional,
                     card.pinyin,

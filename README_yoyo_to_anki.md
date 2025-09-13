@@ -48,6 +48,7 @@ Tips
 
 Notes
 - The `WordType` column now uses labels: `Word` (single word/phrase) or `Sentence` (full sentence). The Mastery field was removed as Anki will manage its own SRS.
+ - When building an `.apkg`, notes include a first field `index` (not shown on the card) containing the lesson/code. This makes the first field unique to prevent Anki duplicate warnings while keeping the visible front unchanged.
 
 Troubleshooting
 - 401/403 errors: your Cookie is likely missing/expired. Grab a fresh value from the browser.
