@@ -12,7 +12,7 @@ Prereqs
 Usage
 1) From the repo root:
 
-   python3 tools/yoyo_to_anki.py \
+   python3 yoyo_to_anki.py \
      --cookie "<paste your Cookie header value>" \
      --output ./export \
      --deck-name YoYoChinese \
@@ -26,7 +26,7 @@ Usage
    - `--format simple` → 2 columns (Front, Back). Front includes Simplified + optional audio; Back includes Pinyin — English.
    - `--format rich` → 7 columns: Simplified, Pinyin, English, Traditional, Audio, Code, WordType.
    - `--split-by-wordtype` → writes two TSVs instead of one: `<deck-name>.word.<format>.tsv` and `<deck-name>.sentence.<format>.tsv`, based on the card's `WordType`.
-   - `--make-apkg` → also builds an `.apkg` with subdecks `Deck::Word` and `Deck::Sentence` using your HTML/CSS templates in `tools/`. Requires `genanki`.
+   - `--make-apkg` → also builds an `.apkg` with subdecks `Deck::Word` and `Deck::Sentence` using your HTML/CSS templates placed alongside the script (repo root). Requires `genanki`.
    - `--apkg-path` → optional path for the output `.apkg` (defaults to `export/<deck-name>.apkg`).
    - Use filters if needed: `--course-id`, `--level-id`, `--unit-id`, `--lesson-id`, `--mastery-type`.
 

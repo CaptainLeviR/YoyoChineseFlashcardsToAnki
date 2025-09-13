@@ -407,8 +407,9 @@ def main():
             print("Cannot build .apkg: genanki not installed. Install with: pip install genanki", file=sys.stderr)
             return
 
-        # Load templates and style from tools; fall back to minimal defaults
-        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+        # Load templates and style from files colocated with this script (preferred),
+        # falling back to a legacy 'tools/' subfolder if present.
+        script_dir = os.path.abspath(os.path.dirname(__file__))
         def _read_file(p: str, default: str) -> str:
             try:
                 with open(p, 'r', encoding='utf-8') as fh:
@@ -416,10 +417,28 @@ def main():
             except Exception:
                 return default
 
-        tools_dir = os.path.join(repo_root, 'tools')
-        front_html = _read_file(os.path.join(tools_dir, 'anki_front_template.html'), "{{simplified}}")
-        back_html = _read_file(os.path.join(tools_dir, 'anki_back_template.html'), "{{simplified}}<br>{{pinyin}}<br>{{english}}")
-        css_text = _read_file(os.path.join(tools_dir, 'anki_style.css'), ".card { font-family: Georgia; font-size: 14px; }")
+        def _read_first(paths: List[str], default: str) -> str:
+            for p in paths:
+                try:
+                    with open(p, 'r', encoding='utf-8') as fh:
+                        return fh.read()
+                except Exception:
+                    continue
+            return default
+
+        legacy_tools_dir = os.path.join(script_dir, 'tools')
+        front_html = _read_first([
+            os.path.join(script_dir, 'anki_front_template.html'),
+            os.path.join(legacy_tools_dir, 'anki_front_template.html'),
+        ], "{{simplified}}")
+        back_html = _read_first([
+            os.path.join(script_dir, 'anki_back_template.html'),
+            os.path.join(legacy_tools_dir, 'anki_back_template.html'),
+        ], "{{simplified}}<br>{{pinyin}}<br>{{english}}")
+        css_text = _read_first([
+            os.path.join(script_dir, 'anki_style.css'),
+            os.path.join(legacy_tools_dir, 'anki_style.css'),
+        ], ".card { font-family: Georgia; font-size: 14px; }")
 
         # Stable IDs from names
         def _stable_id(name: str) -> int:
