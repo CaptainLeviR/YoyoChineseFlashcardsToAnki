@@ -5,7 +5,7 @@ import os
 import sys
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import hashlib
 
 try:
@@ -19,6 +19,20 @@ except Exception as e:
 
 API_URL = "https://yoyochinese.com/api/v1/flashcards/manage/cards"
 CDN_AUDIO_BASE = "https://cdn.yoyochinese.com/audio/practice/"
+
+# Mapping of course IDs to ordered Level IDs used for Level subdecks.
+# Extend this dict manually for future courses as needed.
+LEVEL_IDS_BY_COURSE = {
+    # Course: 5f9c5382c32d410f1447bee9 → Levels 1..6
+    "5f9c5382c32d410f1447bee9": [
+        "5f9c5382c32d410f1447bef5",
+        "5f9c5382c32d410f1447bef6",
+        "5f9c5382c32d410f1447bef7",
+        "5f9c5382c32d410f1447bef8",
+        "5f9c5382c32d410f1447bef9",
+        "5f9c5382c32d410f1447befa",
+    ],
+}
 
 
 @dataclass
@@ -279,9 +293,10 @@ def main():
     parser.add_argument("--format", choices=["simple", "rich"], default="simple", help="TSV format: simple=2 fields (Front/Back) with optional audio; rich=7 fields (Simplified, Pinyin, English, Traditional, Audio, Code, WordType).")
     parser.add_argument("--include-audio", action="store_true", help="Download audio files and reference them in TSV.")
     parser.add_argument("--audio-speed", choices=["normal", "slow"], default="normal", help="Which audio to reference.")
-    parser.add_argument("--make-apkg", action="store_true", help="Create an .apkg with subdecks Word/Sentence using genanki (if available).")
+    parser.add_argument("--make-apkg", action="store_true", help="Create an .apkg using genanki (if available). Uses Word/Sentence subdecks by default, or Level subdecks when --levels-subdecks is set.")
     parser.add_argument("--apkg-path", default=None, help="Optional explicit output path for the .apkg file (defaults to export/<deck-name>.apkg).")
     parser.add_argument("--split-by-wordtype", action="store_true", help="Write separate TSVs for Word and Sentence based on card.wordType.")
+    parser.add_argument("--levels-subdecks", action="store_true", help="Group by course levels (Level 1..N) into subdecks; overrides --split-by-wordtype.")
 
     args = parser.parse_args()
 
@@ -305,19 +320,56 @@ def main():
         ensure_dir(media_dir)
 
     print("Fetching flashcards from YoYoChinese ...")
-    try:
-        cards = fetch_all_flashcards(
-            cookie=cookie,
-            filters=filters,
-            per_page=args.per_page,
-            max_cards=args.max_cards,
-            delay=args.delay,
-        )
-    except Exception as e:
-        print(f"Failed to fetch flashcards: {e}", file=sys.stderr)
-        sys.exit(3)
+    cards: List[Flashcard] = []
+    cards_by_level: Dict[int, List[Flashcard]] = {}
+    using_levels = bool(args.levels_subdecks)
 
-    print(f"Fetched {len(cards)} cards. Transforming → TSV ...")
+    if using_levels:
+        if not args.course_id:
+            print("Error: --levels-subdecks requires --course-id.", file=sys.stderr)
+            sys.exit(2)
+        if args.course_id not in LEVEL_IDS_BY_COURSE:
+            print(
+                "Error: no level mapping found for this --course-id. Add it to LEVEL_IDS_BY_COURSE.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        if args.split_by_wordtype:
+            print("Note: --levels-subdecks ignores --split-by-wordtype (combines Word+Sentence).")
+
+        level_ids = LEVEL_IDS_BY_COURSE[args.course_id]
+        for idx, lvl_id in enumerate(level_ids, start=1):
+            lvl_filters = dict(filters)
+            lvl_filters["levelId"] = lvl_id
+            lvl_filters["unitId"] = ""
+            lvl_filters["lessonId"] = ""
+            try:
+                lvl_cards = fetch_all_flashcards(
+                    cookie=cookie,
+                    filters=lvl_filters,
+                    per_page=args.per_page,
+                    max_cards=args.max_cards,
+                    delay=args.delay,
+                )
+            except Exception as e:
+                print(f"Failed to fetch flashcards for Level {idx}: {e}", file=sys.stderr)
+                sys.exit(3)
+            cards_by_level[idx] = lvl_cards
+            cards.extend(lvl_cards)
+        print(f"Fetched {sum(len(v) for v in cards_by_level.values())} cards across {len(cards_by_level)} levels. Transforming → TSV ...")
+    else:
+        try:
+            cards = fetch_all_flashcards(
+                cookie=cookie,
+                filters=filters,
+                per_page=args.per_page,
+                max_cards=args.max_cards,
+                delay=args.delay,
+            )
+        except Exception as e:
+            print(f"Failed to fetch flashcards: {e}", file=sys.stderr)
+            sys.exit(3)
+        print(f"Fetched {len(cards)} cards. Transforming → TSV ...")
 
     # Accumulators
     tsv_rows_simple_all: List[Tuple[str, str]] = []
@@ -325,59 +377,107 @@ def main():
     # When splitting, bucket by label: 'Word' or 'Sentence'
     tsv_simple_by_type: Dict[str, List[Tuple[str, str]]] = {"Word": [], "Sentence": []}
     tsv_rich_by_type: Dict[str, List[List[str]]] = {"Word": [], "Sentence": []}
+    # When grouping by levels
+    tsv_simple_by_level: Dict[int, List[Tuple[str, str]]] = {}
+    tsv_rich_by_level: Dict[int, List[List[str]]] = {}
     audio_to_download: List[Tuple[str, str]] = []  # (url, dest_path)
 
-    for card in cards:
-        label = _word_type_label(card.wordType)
+    def _accumulate_card(card: Flashcard, bucket_simple: List[Tuple[str, str]], bucket_rich: List[List[str]]):
         if args.format == "simple":
             front, back, audio_fn = to_simple_fields(card, args.include_audio, args.audio_speed)
-            if args.split_by_wordtype and label in tsv_simple_by_type:
-                tsv_simple_by_type[label].append((front, back))
-            else:
-                tsv_rows_simple_all.append((front, back))
+            bucket_simple.append((front, back))
             if args.include_audio and audio_fn:
                 url = CDN_AUDIO_BASE + audio_fn
                 audio_to_download.append((url, os.path.join(media_dir, audio_fn)))
         else:
             fields, audio_fn = to_rich_fields(card, args.include_audio, args.audio_speed)
-            if args.split_by_wordtype and label in tsv_rich_by_type:
-                tsv_rich_by_type[label].append(fields)
-            else:
-                tsv_rows_rich_all.append(fields)
+            bucket_rich.append(fields)
             if args.include_audio and audio_fn:
                 url = CDN_AUDIO_BASE + audio_fn
                 audio_to_download.append((url, os.path.join(media_dir, audio_fn)))
 
+    if using_levels:
+        for lvl_idx, lvl_cards in cards_by_level.items():
+            simple_bucket: List[Tuple[str, str]] = []
+            rich_bucket: List[List[str]] = []
+            for card in lvl_cards:
+                _accumulate_card(card, simple_bucket, rich_bucket)
+            if args.format == "simple":
+                tsv_simple_by_level[lvl_idx] = simple_bucket
+            else:
+                tsv_rich_by_level[lvl_idx] = rich_bucket
+    else:
+        for card in cards:
+            label = _word_type_label(card.wordType)
+            if args.split_by_wordtype and label in tsv_rich_by_type:
+                if args.format == "simple":
+                    front, back, audio_fn = to_simple_fields(card, args.include_audio, args.audio_speed)
+                    tsv_simple_by_type[label].append((front, back))
+                    if args.include_audio and audio_fn:
+                        url = CDN_AUDIO_BASE + audio_fn
+                        audio_to_download.append((url, os.path.join(media_dir, audio_fn)))
+                else:
+                    fields, audio_fn = to_rich_fields(card, args.include_audio, args.audio_speed)
+                    tsv_rich_by_type[label].append(fields)
+                    if args.include_audio and audio_fn:
+                        url = CDN_AUDIO_BASE + audio_fn
+                        audio_to_download.append((url, os.path.join(media_dir, audio_fn)))
+            else:
+                _accumulate_card(card, tsv_rows_simple_all, tsv_rows_rich_all)
+
     # Write TSV(s)
-    if args.split_by_wordtype:
+    if using_levels:
         written_files: List[str] = []
         if args.format == "simple":
-            for key, rows in tsv_simple_by_type.items():
+            for lvl_idx, rows in sorted(tsv_simple_by_level.items()):
                 if not rows:
                     continue
-                out_tsv = os.path.join(out_dir, f"{args.deck_name}.{key.lower()}.{args.format}.tsv")
+                out_tsv = os.path.join(out_dir, f"{args.deck_name}.level{lvl_idx}.{args.format}.tsv")
                 write_tsv_simple(out_tsv, rows)
                 written_files.append(out_tsv)
         else:
-            for key, rows in tsv_rich_by_type.items():
+            for lvl_idx, rows in sorted(tsv_rich_by_level.items()):
                 if not rows:
                     continue
-                out_tsv = os.path.join(out_dir, f"{args.deck_name}.{key.lower()}.{args.format}.tsv")
+                out_tsv = os.path.join(out_dir, f"{args.deck_name}.level{lvl_idx}.{args.format}.tsv")
                 write_tsv_rich(out_tsv, rows)
                 written_files.append(out_tsv)
         if written_files:
-            print("Wrote split TSVs:")
+            print("Wrote Level TSVs:")
             for p in written_files:
                 print(f"  - {p}")
         else:
-            print("No TSV written: no cards matched Word/Sentence buckets.")
+            print("No TSV written: no cards returned for any level.")
     else:
-        out_tsv = os.path.join(out_dir, f"{args.deck_name}.{args.format}.tsv")
-        if args.format == "simple":
-            write_tsv_simple(out_tsv, tsv_rows_simple_all)
+        if args.split_by_wordtype:
+            written_files: List[str] = []
+            if args.format == "simple":
+                for key, rows in tsv_simple_by_type.items():
+                    if not rows:
+                        continue
+                    out_tsv = os.path.join(out_dir, f"{args.deck_name}.{key.lower()}.{args.format}.tsv")
+                    write_tsv_simple(out_tsv, rows)
+                    written_files.append(out_tsv)
+            else:
+                for key, rows in tsv_rich_by_type.items():
+                    if not rows:
+                        continue
+                    out_tsv = os.path.join(out_dir, f"{args.deck_name}.{key.lower()}.{args.format}.tsv")
+                    write_tsv_rich(out_tsv, rows)
+                    written_files.append(out_tsv)
+            if written_files:
+                print("Wrote split TSVs:")
+                for p in written_files:
+                    print(f"  - {p}")
+            else:
+                print("No TSV written: no cards matched Word/Sentence buckets.")
         else:
-            write_tsv_rich(out_tsv, tsv_rows_rich_all)
-        print(f"Wrote TSV → {out_tsv}")
+            out_tsv = os.path.join(out_dir, f"{args.deck_name}.{args.format}.tsv")
+            if args.format == "simple":
+                write_tsv_simple(out_tsv, tsv_rows_simple_all)
+            else:
+                write_tsv_rich(out_tsv, tsv_rows_rich_all)
+            print(f"Wrote TSV → {out_tsv}")
 
     if args.include_audio and audio_to_download:
         print(f"Downloading {len(audio_to_download)} audio files to {media_dir} ...")
@@ -466,42 +566,81 @@ def main():
             css=css_text,
         )
 
-        deck_word = genanki.Deck(_stable_id(f"{args.deck_name}::Word"), f"{args.deck_name}::Word")
-        deck_sentence = genanki.Deck(_stable_id(f"{args.deck_name}::Sentence"), f"{args.deck_name}::Sentence")
-
         # Build notes from fetched cards
         media_files: List[str] = []
-        for card in cards:
-            label = _word_type_label(card.wordType) or 'Word'
-            english = card.english1
-            if card.english2:
-                english = f"{english} | {card.english2}"
-            audio_fn = card.audio_filename(args.audio_speed) if args.include_audio else None
-            audio_field = f"[sound:{audio_fn}]" if audio_fn else ""
-            if audio_fn:
-                media_path = os.path.join(media_dir, audio_fn)
-                if os.path.exists(media_path):
-                    media_files.append(media_path)
 
-            note = genanki.Note(
-                model=model,
-                fields=[
-                    (card.code or card.id or ''),
-                    card.simplified,
-                    card.traditional,
-                    card.pinyin,
-                    english,
-                    audio_field,
-                ]
-            )
-            if label == 'Sentence':
-                deck_sentence.add_note(note)
-            else:
-                deck_word.add_note(note)
+        if 'using_levels' in locals() and using_levels:
+            # Create Level N subdecks
+            decks_by_level: Dict[int, Any] = {}
+            for lvl_idx in sorted(cards_by_level.keys()):
+                deck_name = f"{args.deck_name}::Level {lvl_idx}"
+                decks_by_level[lvl_idx] = genanki.Deck(_stable_id(deck_name), deck_name)
+
+            for lvl_idx, lvl_cards in cards_by_level.items():
+                deck = decks_by_level[lvl_idx]
+                for card in lvl_cards:
+                    english = card.english1
+                    if card.english2:
+                        english = f"{english} | {card.english2}"
+                    audio_fn = card.audio_filename(args.audio_speed) if args.include_audio else None
+                    audio_field = f"[sound:{audio_fn}]" if audio_fn else ""
+                    if audio_fn:
+                        media_path = os.path.join(media_dir, audio_fn)
+                        if os.path.exists(media_path):
+                            media_files.append(media_path)
+
+                    note = genanki.Note(
+                        model=model,
+                        fields=[
+                            (card.code or card.id or ''),
+                            card.simplified,
+                            card.traditional,
+                            card.pinyin,
+                            english,
+                            audio_field,
+                        ]
+                    )
+                    deck.add_note(note)
+
+            decks = [decks_by_level[i] for i in sorted(decks_by_level.keys())]
+        else:
+            # Default: Word / Sentence subdecks
+            deck_word = genanki.Deck(_stable_id(f"{args.deck_name}::Word"), f"{args.deck_name}::Word")
+            deck_sentence = genanki.Deck(_stable_id(f"{args.deck_name}::Sentence"), f"{args.deck_name}::Sentence")
+
+            for card in cards:
+                label = _word_type_label(card.wordType) or 'Word'
+                english = card.english1
+                if card.english2:
+                    english = f"{english} | {card.english2}"
+                audio_fn = card.audio_filename(args.audio_speed) if args.include_audio else None
+                audio_field = f"[sound:{audio_fn}]" if audio_fn else ""
+                if audio_fn:
+                    media_path = os.path.join(media_dir, audio_fn)
+                    if os.path.exists(media_path):
+                        media_files.append(media_path)
+
+                note = genanki.Note(
+                    model=model,
+                    fields=[
+                        (card.code or card.id or ''),
+                        card.simplified,
+                        card.traditional,
+                        card.pinyin,
+                        english,
+                        audio_field,
+                    ]
+                )
+                if label == 'Sentence':
+                    deck_sentence.add_note(note)
+                else:
+                    deck_word.add_note(note)
+
+            decks = [deck_word, deck_sentence]
 
         # Package and write
         apkg_out = args.apkg_path or os.path.join(out_dir, f"{args.deck_name}.apkg")
-        pkg = genanki.Package([deck_word, deck_sentence])
+        pkg = genanki.Package(decks)
         if media_files:
             pkg.media_files = sorted(set(media_files))
         pkg.write_to_file(apkg_out)

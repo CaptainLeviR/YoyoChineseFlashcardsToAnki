@@ -26,12 +26,13 @@ Usage
    - `--format simple` → 2 columns (Front, Back). Front includes Simplified + optional audio; Back includes Pinyin — English.
    - `--format rich` → 7 columns: Simplified, Pinyin, English, Traditional, Audio, Code, WordType.
    - `--split-by-wordtype` → writes two TSVs instead of one: `<deck-name>.word.<format>.tsv` and `<deck-name>.sentence.<format>.tsv`, based on the card's `WordType`.
-   - `--make-apkg` → also builds an `.apkg` with subdecks `Deck::Word` and `Deck::Sentence` using your HTML/CSS templates placed alongside the script (repo root). Requires `genanki`.
+   - `--levels-subdecks` → groups by course levels and produces Level subdecks (`Deck::Level 1`, `Deck::Level 2`, …). Also writes per‑level TSVs (`<deck-name>.level1.<format>.tsv`, etc.). This overrides `--split-by-wordtype` (Word/Sentence are combined per level).
+   - `--make-apkg` → also builds an `.apkg` using your HTML/CSS templates placed alongside the script (repo root). With default settings uses `Deck::Word` and `Deck::Sentence`. With `--levels-subdecks`, uses `Deck::Level N` subdecks.
    - `--apkg-path` → optional path for the output `.apkg` (defaults to `export/<deck-name>.apkg`).
    - Use filters if needed: `--course-id`, `--level-id`, `--unit-id`, `--lesson-id`, `--mastery-type`.
 
 Output
-- TSV at `export/<deck-name>.<format>.tsv` (or two files when using `--split-by-wordtype`)
+- TSV at `export/<deck-name>.<format>.tsv` (or two files when using `--split-by-wordtype`, or one per level when using `--levels-subdecks`)
  - If `--make-apkg`, an Anki package at `export/<deck-name>.apkg` containing subdecks, fields, styling, and audio (when downloaded).
 - Media (if `--include-audio`) in `export/media/` with filenames matching `[sound:...]` in TSV
 
@@ -48,6 +49,7 @@ Tips
 
 Notes
 - The `WordType` column now uses labels: `Word` (single word/phrase) or `Sentence` (full sentence). The Mastery field was removed as Anki will manage its own SRS.
+ - Level subdecks use a manual mapping of course → ordered level IDs defined in `LEVEL_IDS_BY_COURSE` inside `yoyo_to_anki.py`. Add entries there for future courses.
  - When building an `.apkg`, notes include a first field `index` (not shown on the card) containing the lesson/code. This makes the first field unique to prevent Anki duplicate warnings while keeping the visible front unchanged.
 
 Troubleshooting
