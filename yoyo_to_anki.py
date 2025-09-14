@@ -660,7 +660,7 @@ def main():
             return int(h, 16)
 
         model = genanki.Model(
-            model_id=_stable_id('YoYoChinese-Model-v1'),
+            model_id=_stable_id('YoYoChinese-Model-v2'),
             name='YoYoChinese Model',
             fields=[
                 { 'name': 'index' },
@@ -669,6 +669,7 @@ def main():
                 { 'name': 'pinyin' },
                 { 'name': 'english' },
                 { 'name': 'audio' },
+                { 'name': 'CardType' },
             ],
             templates=[
                 {
@@ -702,6 +703,8 @@ def main():
                         english = f"{english} | {card.english2}"
                     audio_fn = card.audio_filename(args.audio_speed) if args.include_audio else None
                     audio_field = f"[sound:{audio_fn}]" if audio_fn else ""
+                    label = _word_type_label(card.wordType)
+                    card_type = (label or 'Word').lower()
                     if audio_fn:
                         media_path = os.path.join(media_dir, audio_fn)
                         if os.path.exists(media_path):
@@ -716,6 +719,7 @@ def main():
                             card.pinyin,
                             english,
                             audio_field,
+                            card_type,
                         ]
                     )
                     deck.add_note(note)
@@ -733,6 +737,7 @@ def main():
                     english = f"{english} | {card.english2}"
                 audio_fn = card.audio_filename(args.audio_speed) if args.include_audio else None
                 audio_field = f"[sound:{audio_fn}]" if audio_fn else ""
+                card_type = (label or 'Word').lower()
                 if audio_fn:
                     media_path = os.path.join(media_dir, audio_fn)
                     if os.path.exists(media_path):
@@ -747,6 +752,7 @@ def main():
                         card.pinyin,
                         english,
                         audio_field,
+                        card_type,
                     ]
                 )
                 if label == 'Sentence':
