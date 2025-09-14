@@ -28,6 +28,7 @@ Usage
      - Uses Level subdecks (`Level 1..N`) and writes per-level TSVs.
    - `--format simple` → 2 columns (Front, Back). Front includes Simplified + optional audio; Back includes Pinyin — English.
    - `--format rich` → 7 columns: Simplified, Pinyin, English, Traditional, Audio, Code, WordType.
+   - `--audio-workers` → max concurrent audio downloads (default: 8). Increase if your network is fast; reduce if you see rate limits.
    - `--split-by-wordtype` → writes two TSVs instead of one: `<deck-name>.word.<format>.tsv` and `<deck-name>.sentence.<format>.tsv`, based on the card's `WordType`.
    - `--levels-subdecks` → groups by course levels and produces Level subdecks (`Deck::Level 1`, `Deck::Level 2`, …). Also writes per‑level TSVs (`<deck-name>.level1.<format>.tsv`, etc.). This overrides `--split-by-wordtype` (Word/Sentence are combined per level). This is the default behavior when you select a course interactively.
    - `--make-apkg` → also builds an `.apkg` using your HTML/CSS templates placed alongside the script (repo root). With default settings uses `Deck::Word` and `Deck::Sentence`. With `--levels-subdecks`, uses `Deck::Level N` subdecks.

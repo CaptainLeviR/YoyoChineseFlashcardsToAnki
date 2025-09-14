@@ -7,6 +7,8 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 import hashlib
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 try:
     # Use urllib to avoid external deps
@@ -347,6 +349,7 @@ def main():
     # Output format
     parser.add_argument("--format", choices=["simple", "rich"], default="simple", help="TSV format: simple=2 fields (Front/Back) with optional audio; rich=7 fields (Simplified, Pinyin, English, Traditional, Audio, Code, WordType).")
     parser.add_argument("--include-audio", action="store_true", help="Download audio files and reference them in TSV.")
+    parser.add_argument("--audio-workers", type=int, default=8, help="Max concurrent audio downloads (default: 8).")
     parser.add_argument("--audio-speed", choices=["normal", "slow"], default="normal", help="Which audio to reference.")
     parser.add_argument("--make-apkg", action="store_true", help="Create an .apkg using genanki (if available). Uses Word/Sentence subdecks by default, or Level subdecks when --levels-subdecks is set.")
     parser.add_argument("--apkg-path", default=None, help="Optional explicit output path for the .apkg file (defaults to export/<deck-name>.apkg).")
@@ -568,24 +571,47 @@ def main():
             print(f"Wrote TSV → {out_tsv}")
 
     if args.include_audio and audio_to_download:
-        print(f"Downloading {len(audio_to_download)} audio files to {media_dir} ...")
-        ok = 0
-        for i, (url, dest) in enumerate(audio_to_download, start=1):
-            # Skip if already exists
-            if os.path.exists(dest) and os.path.getsize(dest) > 0:
-                ok += 1
-                if i % 50 == 0:
-                    print(f"  [{i}/{len(audio_to_download)}] cached")
-                continue
+        # Deduplicate downloads by (url, dest) while preserving order
+        unique_pairs = list(dict.fromkeys(audio_to_download))
+        total = len(unique_pairs)
+        print(f"Downloading {total} audio files to {media_dir} with {args.audio_workers} workers ...")
+
+        # Worker function
+        def _download_pair(pair: Tuple[str, str]) -> Tuple[str, Tuple[str, str], Optional[str]]:
+            url, dest = pair
             try:
+                if os.path.exists(dest) and os.path.getsize(dest) > 0:
+                    return ("cached", pair, None)
                 http_download(url, dest)
-                ok += 1
-                if i % 25 == 0:
-                    print(f"  [{i}/{len(audio_to_download)}] downloaded")
+                return ("downloaded", pair, None)
             except Exception as e:
-                print(f"  WARN: failed {url} → {e}")
-                # continue; keep TSV usable
-        print(f"Audio downloads completed: {ok}/{len(audio_to_download)} ok")
+                return ("failed", pair, str(e))
+
+        ok = 0
+        cached = 0
+        failed = 0
+        processed = 0
+        lock = threading.Lock()
+
+        with ThreadPoolExecutor(max_workers=max(1, args.audio_workers)) as ex:
+            futures = [ex.submit(_download_pair, p) for p in unique_pairs]
+            for i, fut in enumerate(as_completed(futures), start=1):
+                status, pair, err = fut.result()
+                with lock:
+                    processed += 1
+                    if status == "downloaded":
+                        ok += 1
+                    elif status == "cached":
+                        ok += 1
+                        cached += 1
+                    else:
+                        failed += 1
+                        url, _ = pair
+                        print(f"  WARN: failed {url} → {err}")
+                    if processed % 25 == 0 or processed == total:
+                        print(f"  [{processed}/{total}] ok={ok} cached={cached} failed={failed}")
+
+        print(f"Audio downloads completed: {ok}/{total} ok ({cached} cached, {failed} failed)")
 
     # Optionally build .apkg with subdecks (Word/Sentence) using genanki
     if args.make_apkg:
