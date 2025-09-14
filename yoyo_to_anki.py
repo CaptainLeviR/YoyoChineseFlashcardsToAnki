@@ -32,6 +32,61 @@ LEVEL_IDS_BY_COURSE = {
         "5f9c5382c32d410f1447bef9",
         "5f9c5382c32d410f1447befa",
     ],
+    # Chinese Characters → Levels 1..6
+    "5f9c5382c32d410f1447beeb": [
+        "5f9c5382c32d410f1447bf01",
+        "5f9c5382c32d410f1447bf02",
+        "5f9c5382c32d410f1447bf03",
+        "5f9c5382c32d410f1447bf04",
+        "5f9c5382c32d410f1447bf05",
+        "5f9c5382c32d410f1447bf06",
+    ],
+    # Intermediate Conversational → Levels 1..6
+    "5f9c5382c32d410f1447beea": [
+        "5f9c5382c32d410f1447befb",
+        "5f9c5382c32d410f1447befc",
+        "5f9c5382c32d410f1447befd",
+        "5f9c5382c32d410f1447befe",
+        "5f9c5382c32d410f1447beff",
+        "5f9c5382c32d410f1447bf00",
+    ],
+    # Chinese Characters II → Levels 1..6
+    "5f9c5382c32d410f1447beed": [
+        "5f9c5382c32d410f1447bf0d",
+        "5f9c5382c32d410f1447bf0e",
+        "5f9c5382c32d410f1447bf0f",
+        "5f9c5382c32d410f1447bf10",
+        "5f9c5382c32d410f1447bf11",
+        "5f9c5382c32d410f1447bf12",
+    ],
+    # Upper Intermediate Conversational → Levels 1..6
+    "5f9c5382c32d410f1447beec": [
+        "5f9c5382c32d410f1447bf07",
+        "5f9c5382c32d410f1447bf08",
+        "5f9c5382c32d410f1447bf09",
+        "5f9c5382c32d410f1447bf0a",
+        "5f9c5382c32d410f1447bf0b",
+        "5f9c5382c32d410f1447bf0c",
+    ],
+    # Chinese Character Reader → Levels 1..6
+    "5f9c5382c32d410f1447beee": [
+        "5f9c5382c32d410f1447bf13",
+        "5f9c5382c32d410f1447bf14",
+        "5f9c5382c32d410f1447bf15",
+        "5f9c5382c32d410f1447bf16",
+        "5f9c5382c32d410f1447bf17",
+        "5f9c5382c32d410f1447bf18",
+    ],
+}
+
+# Human-friendly course names for selection and deck naming
+COURSE_NAMES: Dict[str, str] = {
+    "5f9c5382c32d410f1447bee9": "Beginner Conversational",
+    "5f9c5382c32d410f1447beeb": "Chinese Characters",
+    "5f9c5382c32d410f1447beea": "Intermediate Conversational",
+    "5f9c5382c32d410f1447beed": "Chinese Characters II",
+    "5f9c5382c32d410f1447beec": "Upper Intermediate Conversational",
+    "5f9c5382c32d410f1447beee": "Chinese Character Reader",
 }
 
 
@@ -276,7 +331,7 @@ def ensure_dir(path: str):
 def main():
     parser = argparse.ArgumentParser(description="Export YoYoChinese flashcards to an Anki-friendly TSV and optional audio.")
     parser.add_argument("--cookie", help="Cookie header value used to authenticate to yoyochinese.com (copy from browser). You can pass with or without 'Cookie:' prefix.")
-    parser.add_argument("--deck-name", default="YoYoChinese", help="Deck name (used for file names only).")
+    parser.add_argument("--deck-name", default="YoyoChinese", help="Deck name (used for file names only).")
     parser.add_argument("--output", default="export", help="Output directory for TSV and media.")
     parser.add_argument("--per-page", type=int, default=50, help="Cards per page to request from API.")
     parser.add_argument("--max", dest="max_cards", type=int, default=None, help="Maximum number of cards to fetch (for testing).")
@@ -284,7 +339,7 @@ def main():
 
     # Filters
     parser.add_argument("--mastery-type", default="all", help="Mastery type filter (e.g., all, learning, mastered). Exact values per site.")
-    parser.add_argument("--course-id", default="", help="Course ID filter.")
+    parser.add_argument("--course-id", default="", help="Course ID filter. If omitted, you will be prompted to select a course.")
     parser.add_argument("--level-id", default="", help="Level ID filter.")
     parser.add_argument("--unit-id", default="", help="Unit ID filter.")
     parser.add_argument("--lesson-id", default="", help="Lesson ID filter.")
@@ -305,6 +360,38 @@ def main():
         print("Error: --cookie (or env YOYO_COOKIE) is required to authenticate to yoyochinese.com", file=sys.stderr)
         sys.exit(2)
 
+    # Interactive course selection when no course is provided
+    selected_via_prompt = False
+    if not args.course_id:
+        # Build selectable list from known courses (those with level mappings)
+        available = [(cid, COURSE_NAMES.get(cid, cid)) for cid in LEVEL_IDS_BY_COURSE.keys()]
+        if not available:
+            print("Error: no courses are configured. Add entries to LEVEL_IDS_BY_COURSE.", file=sys.stderr)
+            sys.exit(2)
+        print("Select a course to export:")
+        for i, (cid, name) in enumerate(available, start=1):
+            print(f"  {i}) {name} [{cid}]")
+        choice = None
+        if sys.stdin.isatty():
+            try:
+                raw = input("Enter number [1]: ").strip()
+                choice = int(raw) if raw else 1
+            except Exception:
+                choice = 1
+        else:
+            # Non-interactive; default to first
+            choice = 1
+            print("No TTY detected; defaulting to option 1.")
+        if choice < 1 or choice > len(available):
+            choice = 1
+        selected_id, selected_name = available[choice - 1]
+        args.course_id = selected_id
+        # If deck name was left as default, set to 'YoyoChinese <Course>'
+        if (args.deck_name or "").strip() == "YoYoChinese":
+            args.deck_name = f"YoyoChinese {selected_name}"
+        selected_via_prompt = True
+
+    # Build filters after potential interactive selection
     filters = {
         "masteryType": {"value": args.mastery_type, "label": args.mastery_type.capitalize()},
         "courseId": args.course_id,
@@ -322,7 +409,8 @@ def main():
     print("Fetching flashcards from YoYoChinese ...")
     cards: List[Flashcard] = []
     cards_by_level: Dict[int, List[Flashcard]] = {}
-    using_levels = bool(args.levels_subdecks)
+    # Use Level subdecks if requested or when a course was selected interactively
+    using_levels = bool(args.levels_subdecks) or selected_via_prompt
 
     if using_levels:
         if not args.course_id:
@@ -566,6 +654,10 @@ def main():
             css=css_text,
         )
 
+        # Determine base deck name for APKG: prefer course mapping name
+        course_base = COURSE_NAMES.get(args.course_id, None)
+        apkg_base_name = f"YoyoChinese {course_base}" if course_base else args.deck_name
+
         # Build notes from fetched cards
         media_files: List[str] = []
 
@@ -573,7 +665,7 @@ def main():
             # Create Level N subdecks
             decks_by_level: Dict[int, Any] = {}
             for lvl_idx in sorted(cards_by_level.keys()):
-                deck_name = f"{args.deck_name}::Level {lvl_idx}"
+                deck_name = f"{apkg_base_name}::Level {lvl_idx}"
                 decks_by_level[lvl_idx] = genanki.Deck(_stable_id(deck_name), deck_name)
 
             for lvl_idx, lvl_cards in cards_by_level.items():
@@ -605,8 +697,8 @@ def main():
             decks = [decks_by_level[i] for i in sorted(decks_by_level.keys())]
         else:
             # Default: Word / Sentence subdecks
-            deck_word = genanki.Deck(_stable_id(f"{args.deck_name}::Word"), f"{args.deck_name}::Word")
-            deck_sentence = genanki.Deck(_stable_id(f"{args.deck_name}::Sentence"), f"{args.deck_name}::Sentence")
+            deck_word = genanki.Deck(_stable_id(f"{apkg_base_name}::Word"), f"{apkg_base_name}::Word")
+            deck_sentence = genanki.Deck(_stable_id(f"{apkg_base_name}::Sentence"), f"{apkg_base_name}::Sentence")
 
             for card in cards:
                 label = _word_type_label(card.wordType) or 'Word'
@@ -639,7 +731,7 @@ def main():
             decks = [deck_word, deck_sentence]
 
         # Package and write
-        apkg_out = args.apkg_path or os.path.join(out_dir, f"{args.deck_name}.apkg")
+        apkg_out = args.apkg_path or os.path.join(out_dir, f"{apkg_base_name}.apkg")
         pkg = genanki.Package(decks)
         if media_files:
             pkg.media_files = sorted(set(media_files))

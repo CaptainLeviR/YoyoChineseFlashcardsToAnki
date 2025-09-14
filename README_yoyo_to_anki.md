@@ -23,10 +23,13 @@ Usage
 
    Notes:
    - You can also set `YOYO_COOKIE` env var instead of `--cookie`.
+   - If you omit `--course-id`, the script prompts you to select a course and automatically:
+     - Sets the deck name to `YoyoChinese <Course Name>` (e.g., `YoyoChinese Beginner Course`).
+     - Uses Level subdecks (`Level 1..N`) and writes per-level TSVs.
    - `--format simple` → 2 columns (Front, Back). Front includes Simplified + optional audio; Back includes Pinyin — English.
    - `--format rich` → 7 columns: Simplified, Pinyin, English, Traditional, Audio, Code, WordType.
    - `--split-by-wordtype` → writes two TSVs instead of one: `<deck-name>.word.<format>.tsv` and `<deck-name>.sentence.<format>.tsv`, based on the card's `WordType`.
-   - `--levels-subdecks` → groups by course levels and produces Level subdecks (`Deck::Level 1`, `Deck::Level 2`, …). Also writes per‑level TSVs (`<deck-name>.level1.<format>.tsv`, etc.). This overrides `--split-by-wordtype` (Word/Sentence are combined per level).
+   - `--levels-subdecks` → groups by course levels and produces Level subdecks (`Deck::Level 1`, `Deck::Level 2`, …). Also writes per‑level TSVs (`<deck-name>.level1.<format>.tsv`, etc.). This overrides `--split-by-wordtype` (Word/Sentence are combined per level). This is the default behavior when you select a course interactively.
    - `--make-apkg` → also builds an `.apkg` using your HTML/CSS templates placed alongside the script (repo root). With default settings uses `Deck::Word` and `Deck::Sentence`. With `--levels-subdecks`, uses `Deck::Level N` subdecks.
    - `--apkg-path` → optional path for the output `.apkg` (defaults to `export/<deck-name>.apkg`).
    - Use filters if needed: `--course-id`, `--level-id`, `--unit-id`, `--lesson-id`, `--mastery-type`.
@@ -49,7 +52,7 @@ Tips
 
 Notes
 - The `WordType` column now uses labels: `Word` (single word/phrase) or `Sentence` (full sentence). The Mastery field was removed as Anki will manage its own SRS.
- - Level subdecks use a manual mapping of course → ordered level IDs defined in `LEVEL_IDS_BY_COURSE` inside `yoyo_to_anki.py`. Add entries there for future courses.
+ - Level subdecks use a manual mapping of course → ordered level IDs defined in `LEVEL_IDS_BY_COURSE` inside `yoyo_to_anki.py`. Add entries there for future courses. Course display names are defined in `COURSE_NAMES`.
  - When building an `.apkg`, notes include a first field `index` (not shown on the card) containing the lesson/code. This makes the first field unique to prevent Anki duplicate warnings while keeping the visible front unchanged.
 
 Troubleshooting
