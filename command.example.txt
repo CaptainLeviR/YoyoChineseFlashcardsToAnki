@@ -1,0 +1,8 @@
+python3 yoyo_to_anki.py \
+     --cookie "CookieValue" \
+     --output ./export \
+     --format rich \
+     --include-audio \
+     --audio-speed normal \
+     --audio-workers 16 \
+     --make-apkg

@@ -5,7 +5,7 @@ import os
 import sys
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Set
 import hashlib
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -687,6 +687,8 @@ def main():
 
         # Build notes from fetched cards
         media_files: List[str] = []
+        seen_indexes: Set[str] = set()
+        duplicates_skipped = 0
 
         if 'using_levels' in locals() and using_levels:
             # Create Level N subdecks
@@ -698,6 +700,12 @@ def main():
             for lvl_idx, lvl_cards in cards_by_level.items():
                 deck = decks_by_level[lvl_idx]
                 for card in lvl_cards:
+                    index_val = (card.code or card.id or '').strip()
+                    if index_val:
+                        if index_val in seen_indexes:
+                            duplicates_skipped += 1
+                            continue
+                        seen_indexes.add(index_val)
                     english = card.english1
                     if card.english2:
                         english = f"{english} | {card.english2}"
@@ -731,6 +739,12 @@ def main():
             deck_sentence = genanki.Deck(_stable_id(f"{apkg_base_name}::Sentence"), f"{apkg_base_name}::Sentence")
 
             for card in cards:
+                index_val = (card.code or card.id or '').strip()
+                if index_val:
+                    if index_val in seen_indexes:
+                        duplicates_skipped += 1
+                        continue
+                    seen_indexes.add(index_val)
                 label = _word_type_label(card.wordType) or 'Word'
                 english = card.english1
                 if card.english2:
@@ -768,6 +782,8 @@ def main():
         if media_files:
             pkg.media_files = sorted(set(media_files))
         pkg.write_to_file(apkg_out)
+        if duplicates_skipped:
+            print(f"Skipped {duplicates_skipped} duplicate notes by index during APKG build")
         print(f"Wrote Anki package → {apkg_out}")
 
     print("Done. Import into Anki: File → Import → select TSV.\n"
